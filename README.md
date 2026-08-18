@@ -1,6 +1,14 @@
-# TrustCheck — GenLayer Intelligent Contract
+# TrustCheck — GenLayer Claim Verification
 
-TrustCheck is a GenLayer application for consensus-based verification of online claims.
+TrustCheck is a GenLayer dApp for verifying a claim against a supplied web source. The Intelligent Contract fetches the source, evaluates the evidence through non-deterministic execution, and uses GenLayer's consensus principle to store one of three outcomes: `VERIFIED`, `REFUTED`, or `UNCERTAIN`.
+
+## What is included
+
+- `contract.py` — the GenLayer Intelligent Contract.
+- `src/main.ts` — browser dApp logic using GenLayerJS.
+- `src/style.css` — responsive interface.
+- `index.html` — app entry point.
+- `vite.config.ts` — static hosting configuration.
 
 ## Problem
 
@@ -8,33 +16,11 @@ Online claims are easy to repeat but difficult to verify consistently when the e
 
 ## How it works
 
-A user submits:
-
-- a claim to evaluate
-- a source URL containing the evidence
-
-The Intelligent Contract fetches the source through GenLayer's nondeterministic web access. An LLM classifies the evidence as `VERIFIED`, `REFUTED`, or `UNCERTAIN`, and `gl.eq_principle.prompt_comparative()` is used so validators independently perform the same task and compare the outcome. Only the consensus-agreed result is written to contract state.
-
-Results:
-
-- `VERIFIED` — the source directly supports the claim
-- `REFUTED` — the source directly contradicts the claim
-- `UNCERTAIN` — evidence is unavailable, ambiguous, irrelevant, or insufficient
+A user submits a claim and a source URL. The Intelligent Contract fetches the source through GenLayer's nondeterministic web access. An LLM classifies the evidence as `VERIFIED`, `REFUTED`, or `UNCERTAIN`, and `gl.eq_principle.prompt_comparative()` is used so validators independently perform the same task and compare the outcome. Only the consensus-agreed result is written to contract state.
 
 ## Why GenLayer is central
 
 The core product is the Intelligent Contract itself: web access and LLM evaluation are nondeterministic, so the result cannot simply be calculated by a conventional deterministic smart contract. GenLayer's Equivalence Principle provides the validator consensus needed before the result becomes persistent state.
-
-## Repository structure
-
-```text
-contract.py              # GenLayer Intelligent Contract
-frontend/                # Next.js + GenLayerJS dApp
-  app/page.tsx           # claim form, wallet connection, read/write lifecycle
-  app/layout.tsx
-  package.json
-  tsconfig.json
-```
 
 ## Contract API
 
@@ -52,57 +38,42 @@ The frontend is a real GenLayerJS client rather than a mock UI. It:
 2. switches the client to Studionet
 3. sends `submit_claim` through `writeContract()`
 4. waits for the transaction to reach `FINALIZED`
-5. checks the transaction execution result
-6. reads `get_result()` after successful execution
+5. reads `get_result()` after successful execution
+6. displays the on-chain verification result
 
-Set the deployed contract address before running the frontend:
-
-```bash
-cd frontend
-npm install
-```
-
-Create `frontend/.env.local`:
+Set the full deployed contract address in `.env`:
 
 ```text
-NEXT_PUBLIC_TRUSTCHECK_ADDRESS=0xYOUR_FULL_DEPLOYED_ADDRESS
+VITE_CONTRACT_ADDRESS=0xYOUR_FULL_DEPLOYED_ADDRESS
 ```
 
 Then run:
 
 ```bash
+npm install
 npm run dev
 ```
 
-Open the local Next.js URL, connect a wallet configured for GenLayer Studionet, submit a claim and source URL, and wait for finalization.
+Open the local Vite URL, connect a wallet configured for GenLayer Studionet, submit a claim and source URL, and wait for finalization.
 
-## Deployment
+## Network
 
-The contract was deployed and finalized in GenLayer Studio during development. The currently referenced deployment is the TrustCheck instance whose Studio UI showed an address beginning `0x0B` and ending `B37e`.
+The frontend targets GenLayer **Studionet**. Current GenLayer documentation lists the Studionet RPC as `https://studio.genlayer.com/api` with chain ID `61999`.
 
-Do not treat the shortened address as a complete on-chain identifier. Put the full address in `NEXT_PUBLIC_TRUSTCHECK_ADDRESS` when running the dApp.
+## Verified development test
 
-## Example
+The deployed contract was exercised in GenLayer Studio with a real GenLayer documentation source:
 
 ```text
-Claim: The Earth orbits the Sun.
-Source URL: https://example.org/authoritative-source
+Claim: GenLayer is an AI-native blockchain that uses decentralized AI-validator consensus to resolve contracts that require judgment.
+Source: https://docs.genlayer.com/understand-genlayer-protocol/what-is-genlayer
+Result: VERIFIED
 ```
 
-## Development and verification
-
-The contract follows the current GenLayer Intelligent Contract model:
-
-- `gl.Contract` for the contract class
-- typed persistent state fields
-- `@gl.public.view` for read-only methods
-- `@gl.public.write` for state-changing methods
-- `gl.nondet.web.get()` for external web data
-- `gl.nondet.exec_prompt()` for LLM evaluation
-- `gl.eq_principle.prompt_comparative()` for independent validator comparison
-
-Before a production/testnet redeployment, run the GenLayer linter and test the complete transaction lifecycle. The frontend intentionally checks both consensus finalization and `txExecutionResultName`; a finalized transaction with failed execution is not treated as a successful verification.
+The Studio transaction history showed finalized deployment, `evaluate`, and `submit_claim` transactions, followed by `get_result()` returning `VERIFIED`.
 
 ## Limitations
 
 TrustCheck verifies a claim against the supplied source; it does not prove that the source itself is truthful or authoritative. `UNCERTAIN` is preferred when the source cannot provide enough evidence rather than forcing a binary verdict.
+
+Do not put a private key in this repository. The browser wallet signs transactions locally.
