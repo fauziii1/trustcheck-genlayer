@@ -1,10 +1,9 @@
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 from genlayer import *
-import json
 
 
 class TrustCheck(gl.Contract):
-    """Consensus-based claim verification using a supplied source URL."""
+    """Consensus-based verification of a claim against a supplied web source."""
 
     claim: str
     source_url: str
@@ -37,14 +36,14 @@ class TrustCheck(gl.Contract):
         source_url = self.source_url
 
         def analyze_source() -> str:
-            response = gl.nondet.web.get(source_url)
-            content = response.body.decode("utf-8", errors="ignore")
-            content = content[:12000]
+            try:
+                response = gl.nondet.web.get(source_url)
+                content = response.body.decode("utf-8", errors="ignore")[:12000]
 
-            prompt = f"""
+                prompt = f"""
 You are a careful claim verifier.
 
-Claim to evaluate:
+Claim:
 {claim}
 
 Source URL:
@@ -53,31 +52,39 @@ Source URL:
 Source content:
 {content}
 
-Determine whether the source supports or contradicts the claim.
-Return exactly one label and nothing else:
-VERIFIED - the source directly supports the claim.
-REFUTED - the source directly contradicts the claim.
-UNCERTAIN - the source is unavailable, ambiguous, irrelevant, or insufficient.
+Classify the claim using only the supplied source content.
+Return exactly one of these labels and nothing else:
+VERIFIED
+REFUTED
+UNCERTAIN
+
+VERIFIED means the source directly supports the claim.
+REFUTED means the source directly contradicts the claim.
+UNCERTAIN means the source is unavailable, ambiguous, irrelevant, or insufficient.
 """
-            answer = gl.nondet.exec_prompt(prompt).strip().upper()
-            if "REFUTED" in answer:
-                return "REFUTED"
-            if "VERIFIED" in answer:
-                return "VERIFIED"
-            return "UNCERTAIN"
+                answer = gl.nondet.exec_prompt(prompt).strip().upper()
+                if answer == "VERIFIED":
+                    return "VERIFIED"
+                if answer == "REFUTED":
+                    return "REFUTED"
+                return "UNCERTAIN"
+            except Exception:
+                return "UNCERTAIN"
 
         consensus_result = gl.eq_principle.prompt_comparative(
             analyze_source,
-            "The validators should agree on the same claim-verification label. "
-            "Treat VERIFIED, REFUTED, and UNCERTAIN as distinct outcomes. "
-            "Use UNCERTAIN when evidence is insufficient."
+            principle=(
+                "The validators must agree on exactly the same claim-verification "
+                "label. VERIFIED, REFUTED, and UNCERTAIN are distinct outcomes. "
+                "Use UNCERTAIN when the source or evidence is insufficient."
+            ),
         )
 
-        normalized = str(consensus_result).upper()
-        if "REFUTED" in normalized:
-            self.result = "REFUTED"
-        elif "VERIFIED" in normalized:
+        normalized = str(consensus_result).strip().upper()
+        if normalized == "VERIFIED":
             self.result = "VERIFIED"
+        elif normalized == "REFUTED":
+            self.result = "REFUTED"
         else:
             self.result = "UNCERTAIN"
 
