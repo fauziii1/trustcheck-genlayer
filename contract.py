@@ -1,40 +1,78 @@
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 from genlayer import *
+import hashlib
+import json
 
 
 class TrustCheck(gl.Contract):
-    """Consensus-based verification of a claim against a supplied web source."""
+    """Consensus-based claim verification with durable, claim-indexed receipts."""
 
-    claim: str
-    source_url: str
-    result: str
+    claim_counter: int
+    latest_claim_id: str
+    claims: dict
 
     def __init__(self):
-        self.claim = ""
-        self.source_url = ""
-        self.result = "UNCERTAIN"
+        self.claim_counter = 0
+        self.latest_claim_id = ""
+        self.claims = {}
+
+    @gl.public.view
+    def get_latest_claim_id(self) -> str:
+        return self.latest_claim_id
+
+    @gl.public.view
+    def get_receipt(self, claim_id: str) -> str:
+        receipt = self.claims.get(claim_id)
+        if receipt is None:
+            return ""
+        return json.dumps(receipt, sort_keys=True)
 
     @gl.public.view
     def get_result(self) -> str:
-        return self.result
+        if not self.latest_claim_id:
+            return "UNCERTAIN"
+        receipt = self.claims.get(self.latest_claim_id)
+        if receipt is None:
+            return "UNCERTAIN"
+        return receipt["result"]
 
     @gl.public.write
     def submit_claim(self, claim: str, source_url: str) -> str:
-        self.claim = claim
-        self.source_url = source_url
-        return self._evaluate_claim()
+        self.claim_counter += 1
+        claim_id = hashlib.sha256(
+            f"{self.claim_counter}:{claim}:{source_url}".encode("utf-8")
+        ).hexdigest()
+        self.latest_claim_id = claim_id
+
+        result, evidence_digest = self._evaluate_claim(claim, source_url)
+
+        self.claims[claim_id] = {
+            "claim_id": claim_id,
+            "claim": claim,
+            "source_url": source_url,
+            "evidence_digest": evidence_digest,
+            "result": result,
+        }
+        return result
 
     @gl.public.write
     def evaluate(self) -> str:
-        if not self.claim or not self.source_url:
-            self.result = "UNCERTAIN"
-            return self.result
-        return self._evaluate_claim()
+        if not self.latest_claim_id:
+            return "UNCERTAIN"
 
-    def _evaluate_claim(self) -> str:
-        claim = self.claim
-        source_url = self.source_url
+        receipt = self.claims.get(self.latest_claim_id)
+        if receipt is None:
+            return "UNCERTAIN"
 
+        result, evidence_digest = self._evaluate_claim(
+            receipt["claim"], receipt["source_url"]
+        )
+        receipt["result"] = result
+        receipt["evidence_digest"] = evidence_digest
+        self.claims[self.latest_claim_id] = receipt
+        return result
+
+    def _evaluate_claim(self, claim: str, source_url: str):
         def analyze_source() -> str:
             try:
                 response = gl.nondet.web.get(source_url)
@@ -81,11 +119,10 @@ UNCERTAIN means the source is unavailable, ambiguous, irrelevant, or insufficien
         )
 
         normalized = str(consensus_result).strip().upper()
-        if normalized == "VERIFIED":
-            self.result = "VERIFIED"
-        elif normalized == "REFUTED":
-            self.result = "REFUTED"
-        else:
-            self.result = "UNCERTAIN"
+        if normalized not in {"VERIFIED", "REFUTED", "UNCERTAIN"}:
+            normalized = "UNCERTAIN"
 
-        return self.result
+        evidence_digest = hashlib.sha256(
+            f"{claim}\n{source_url}\n{normalized}".encode("utf-8")
+        ).hexdigest()
+        return normalized, evidence_digest
